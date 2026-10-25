@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 1024px; height: 1024px;
+    background: transparent;
+    display: grid; place-items: center;
+  }
+  .tile {
+    width: 824px; height: 824px;
+    border-radius: 186px;
+    background: linear-gradient(160deg, #ffffff 0%, #f2f6fb 100%);
+    box-shadow: 0 18px 48px rgba(16, 24, 40, 0.18), inset 0 1px 0 rgba(255,255,255,0.9);
+    display: grid; place-items: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .tile::after {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: 186px;
+    border: 2px solid rgba(255,255,255,0.85);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 46px;
+  }
+  .sq { width: 218px; height: 218px; border-radius: 30px; }
+  .s1 { background: linear-gradient(150deg, #ff7a5c, #f25022); }
+  .s2 { background: linear-gradient(150deg, #a4d94a, #7fba00); }
+  .s3 { background: linear-gradient(150deg, #4fc3f7, #00a4ef); }
+  .s4 { background: linear-gradient(150deg, #ffd24a, #ffb900); }
+</style>
+</head>
+<body>
+  <div class="tile">
+    <div class="grid">
+      <div class="sq s1"></div>
+      <div class="sq s2"></div>
+      <div class="sq s3"></div>
+      <div class="sq s4"></div>
+    </div>
+  </div>
+</body>
+</html>

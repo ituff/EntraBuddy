@@ -1,0 +1,27 @@
+# 本地助手目录：包含真实账户扫描记录，绝不入库
+.workbuddy-ai/
+.claude/
+.cursor/
+
+# 构建产物
+.build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# 系统与编辑器
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# 日志与临时文件
+*.log
+*.tmp
