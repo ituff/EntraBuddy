@@ -71,22 +71,29 @@ EntraBuddy 把这些信息汇总成一张可读的视图，并且**只读本地�
 
 ## 快速开始
 
-### 桌面 App
+### 下载预编译版（Apple Silicon）
+
+从 [Releases](https://github.com/ituff/EntraBuddy/releases) 下载最新的 `EntraBuddy-*-macos-arm64.zip`，解压后把 `EntraBuddy.app` 拖进「应用程序」。
+
+应用已内置 Python 运行时与 PyObjC，**不需要预装任何东西**。
+
+首次打开会被 Gatekeeper 拦下（应用未签名公证），二选一：
+
+- 右键点击应用 → 打开 → 再点「打开」
+- 或执行 `xattr -dr com.apple.quarantine /Applications/EntraBuddy.app`
+
+### 从源码构建
 
 ```bash
-git clone https://github.com/<your-name>/EntraBuddy.git
+git clone https://github.com/ituff/EntraBuddy.git
 cd EntraBuddy
 ./desktop/build_app.sh
 open dist/EntraBuddy.app
 ```
 
+构建脚本会把 Python 运行时和 PyObjC 一起打包进 `Contents/Resources`，产出的 `.app` 可以拷到任意机器运行（架构需一致）。
+
 原生窗口（PyObjC + WKWebView），启动时自动拉起本地服务并分配随机端口，退出时自动关闭。
-
-需要 PyObjC：
-
-```bash
-python3 -m pip install pyobjc-framework-Cocoa pyobjc-framework-WebKit
-```
 
 ### 浏览器模式
 
