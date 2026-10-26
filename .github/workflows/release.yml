@@ -58,7 +58,9 @@ jobs:
           Compress-Archive -Path dist\EntraBuddy.exe
           -DestinationPath "dist\EntraBuddy-${{ github.ref_name }}-windows-x64.zip"
 
+      # workflow_dispatch 演练没有标签，跳过发布，纯验证构建
       - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/EntraBuddy-*.zip
