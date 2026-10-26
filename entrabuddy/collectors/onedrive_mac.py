@@ -13,6 +13,12 @@ SUITE_PLIST = os.path.join(
     "Library/Group Containers/UBF8T346G9.OneDriveSyncClientSuite/Library/Preferences/"
     "UBF8T346G9.OneDriveSyncClientSuite.plist",
 )
+
+APP_ID = "com.microsoft.OneDrive-mac"
+
+
+def evidence_path(slot: str) -> str:
+    return SUITE_PLIST
 CLOUD_STORAGE = os.path.join(HOME, "Library/CloudStorage")
 APP_PATH = "/Applications/OneDrive.app"
 
@@ -21,6 +27,7 @@ def collect() -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "installed": os.path.isdir(APP_PATH),
         "plist_available": os.path.exists(SUITE_PLIST),
+        "available": os.path.exists(SUITE_PLIST),
         "accounts": [],
         "mounts": [],
     }

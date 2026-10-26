@@ -1,6 +1,6 @@
-"""解析 OneAuth 账户库（Office 全家桶共用的身份存储）。
+"""解析 OneAuth 账户库（Office 全家桶共用的身份存储，macOS / Windows 共享）。
 
-目录结构（`~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/`）：
+OneAuth 是微软的跨平台同一套库，blob 命名与 JSON 结构完全一致：
 
     <accountId>_graph_organization      Graph /organization，含租户显示名
     <accountId>_substrate_profile       MSA 个人资料，含 passportMemberName
@@ -8,8 +8,12 @@
     <UPN>_identity_provider             内容为 OrgId / MSAccount
     <domain 或 tenantId>_hrd            主域发现，含 environment / tenantId
 
+仅根目录不同：
+    macOS    ~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/
+    Windows  %LOCALAPPDATA%\\Microsoft\\OneAuth\\blobs\\（旧版布局为 BlobStore）
+
 accountId 的语义：
-    * MSA 账户   -> cid（16 位 hex，与 Edge gaia_id、OneDrive cid 一致）
+    * MSA 账户   -> cid（16 位 hex，与 Edge 账户、OneDrive cid 一致）
     * OrgId 账户 -> 用户在租户内的 objectId（GUID），不是 tenantId
 """
 
@@ -17,13 +21,26 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from ..util import HOME, iso, mtime, read_json, read_text
+from ..util import HOME, LOCALAPPDATA, iso, mtime, read_json, read_text
 
-BLOB_DIR = os.path.join(
-    HOME, "Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore"
-)
+if os.name == "nt":
+    _ONEAUTH_ROOT = os.path.join(LOCALAPPDATA, "Microsoft", "OneAuth")
+    # Windows 实际目录是小写 blobs；保留 BlobStore 兼容旧版布局
+    _BLOB_CANDIDATES = ("blobs", "BlobStore")
+    BLOB_DIR = next(
+        (
+            os.path.join(_ONEAUTH_ROOT, name)
+            for name in _BLOB_CANDIDATES
+            if os.path.isdir(os.path.join(_ONEAUTH_ROOT, name))
+        ),
+        os.path.join(_ONEAUTH_ROOT, _BLOB_CANDIDATES[0]),
+    )
+else:
+    BLOB_DIR = os.path.join(
+        HOME, "Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore"
+    )
 
 GUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
@@ -44,14 +61,14 @@ SUFFIXES = (
 )
 
 
-def _split(filename: str) -> tuple[str, str] | None:
+def _split(filename: str) -> Optional[tuple[str, str]]:
     for suffix in SUFFIXES:
         if filename.endswith(suffix):
             return filename[: -len(suffix)], suffix[1:]
     return None
 
 
-def _env_label(environment: str | None, authority_host: str | None) -> str:
+def _env_label(environment: Optional[str], authority_host: Optional[str]) -> str:
     env = (environment or "").strip().lower()
     host = (authority_host or "").lower()
     if env == "china" or "chinacloudapi" in host or "microsoftonline.cn" in host:
@@ -154,7 +171,7 @@ def collect() -> Dict[str, Any]:
     return result
 
 
-def resolve_tenant(hrds: Dict[str, Any], upn: str) -> Dict[str, Any] | None:
+def resolve_tenant(hrds: Dict[str, Any], upn: str) -> Optional[Dict[str, Any]]:
     """用 UPN 的域名去查主域发现结果。"""
     if "@" not in upn:
         return None
@@ -174,7 +191,7 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
 
-def name_score(tenant_name: str | None, domain: str) -> int:
+def name_score(tenant_name: Optional[str], domain: str) -> int:
     """租户显示名与邮箱域名的相似度，0-100。
 
     这是比时间戳可靠得多的信号：

@@ -8,9 +8,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-from .util import HOME, human_path
+from .util import APP_SUPPORT, human_path
 
-APP_SUPPORT = os.path.join(HOME, "Library/Application Support/EntraBuddy")
 SNAPSHOT_DIR = os.path.join(APP_SUPPORT, "snapshots")
 MAX_SNAPSHOTS = 60
 
