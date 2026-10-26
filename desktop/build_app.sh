@@ -34,7 +34,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/app"
 mkdir -p "$BUILD"
 
 echo "==> 复制应用代码"
-cp "$ROOT/app.py" "$ROOT/desktop.py" "$APP/Contents/Resources/app/"
+cp "$ROOT/app.py" "$ROOT/desktop_mac.py" "$APP/Contents/Resources/app/"
 cp -R "$ROOT/entrabuddy" "$APP/Contents/Resources/app/"
 cp -R "$ROOT/web" "$APP/Contents/Resources/app/"
 find "$APP/Contents/Resources/app" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
@@ -73,7 +73,7 @@ APP_DIR="$HERE/../Resources/app"
 BUNDLED_PY="$HERE/../Resources/python/bin/python3"
 
 if [ -x "$BUNDLED_PY" ] && "$BUNDLED_PY" -c "import AppKit, WebKit" 2>/dev/null; then
-  exec "$BUNDLED_PY" "$APP_DIR/desktop.py"
+  exec "$BUNDLED_PY" "$APP_DIR/desktop_mac.py"
 fi
 
 # 回退：用系统 Python（需要用户自行安装 PyObjC）
@@ -81,7 +81,7 @@ for py in "${ENTRABUDDY_PYTHON:-}" "/opt/homebrew/bin/python3" "/usr/local/bin/p
   [ -x "$py" ] || continue
   if "$py" -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" 2>/dev/null \
      && "$py" -c "import AppKit, WebKit" 2>/dev/null; then
-    exec "$py" "$APP_DIR/desktop.py"
+    exec "$py" "$APP_DIR/desktop_mac.py"
   fi
 done
 

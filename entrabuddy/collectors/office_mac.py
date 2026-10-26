@@ -15,6 +15,9 @@ LICENSE_ROOT = os.path.join(
 )
 OFFICE_PREFS_DOMAIN = "com.microsoft.office"
 
+# scan.py 通用化所需的平台常量
+ACTIVE_DETAIL = "Office 当前登录身份（OCPS-LastSuccessfulUserId）"
+
 # Office 应用与容器路径
 OFFICE_APPS = [
     ("com.microsoft.Word", "Microsoft Word", "/Applications/Microsoft Word.app"),

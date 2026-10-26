@@ -17,9 +17,8 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .collectors import oneauth
-from .util import HOME, human_path
+from .util import APP_SUPPORT, human_path
 
-APP_SUPPORT = os.path.join(HOME, "Library/Application Support/EntraBuddy")
 BACKUP_ROOT = os.path.join(APP_SUPPORT, "backups")
 BLOB_DIR = oneauth.BLOB_DIR
 MAX_FILES_PER_ACCOUNT = 40

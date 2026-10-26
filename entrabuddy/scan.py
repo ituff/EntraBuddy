@@ -1,4 +1,11 @@
-"""扫描编排：合并各来源，产出账户清单与「账户 -> 应用」关联。"""
+"""扫描编排：合并各来源，产出账户清单与「账户 -> 应用」关联（双平台）。
+
+平台差异全部收敛在 collectors 分派层：
+    * 应用 ID（edge/onedrive 的 APP_ID 随平台不同）
+    * Office 当前登录身份的描述文案（office.ACTIVE_DETAIL）
+    * OneDrive 证据路径（onedrive.evidence_path(slot)）
+编排、账户合并、角色绑定与洞察生成完全共享。
+"""
 
 from __future__ import annotations
 
@@ -6,6 +13,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List
 
+from . import _platform
 from .collectors import device, edge, environment, office, oneauth, onedrive
 from .util import human_path, iso
 
@@ -122,13 +130,15 @@ def scan() -> Dict[str, Any]:
     for item in org_linked:
         account = ensure(item["upn"])
         account["kind"] = "org"
-        account["object_id"] = item.get("object_id")
-        account["tenant_name"] = item.get("tenant_name")
-        account["link_confidence"] = item.get("confidence")
+        if item.get("object_id") and not account.get("object_id"):
+            account["object_id"] = item.get("object_id")
+        account["tenant_name"] = account.get("tenant_name") or item.get("tenant_name")
+        if item.get("confidence"):
+            account["link_confidence"] = item.get("confidence")
 
         tenant = oneauth.resolve_tenant(raw["hrds"], item["upn"])
         if tenant:
-            account["tenant_id"] = tenant.get("tenant_id")
+            account["tenant_id"] = account.get("tenant_id") or tenant.get("tenant_id")
             account["cloud"] = tenant.get("environment", "global")
             _add_evidence(
                 account,
@@ -137,7 +147,7 @@ def scan() -> Dict[str, Any]:
                 f"域 {item['upn'].rsplit('@', 1)[-1]} → 租户 {tenant.get('tenant_id')}",
                 tenant.get("last_seen"),
             )
-        if item.get("object_id"):
+        if item.get("object_id") and account.get("object_id") == item.get("object_id"):
             _add_evidence(
                 account,
                 "OneAuth 组织信息",
@@ -151,8 +161,9 @@ def scan() -> Dict[str, Any]:
     for upn_lower, blob in msa_by_upn.items():
         account = ensure(blob["upn"])
         account["kind"] = "msa"
-        account["cid"] = blob["account_id"]
-        account["location"] = blob.get("location")
+        if blob["account_id"] and not account.get("cid"):
+            account["cid"] = blob["account_id"]
+        account["location"] = account.get("location") or blob.get("location")
         _touch(account, blob.get("ts"), blob.get("last_seen"))
         _add_evidence(
             account,
@@ -174,12 +185,15 @@ def scan() -> Dict[str, Any]:
                 account["kind"] = "msa" if not acc.get("hosted_domain") else "org"
             if acc.get("gaia_id") and not account["cid"]:
                 account["cid"] = acc["gaia_id"]
+            detail = f"配置文件「{profile['name']}」({profile['dir']}) 已登录"
+            if acc.get("source") == "cache":
+                detail += "，登录态来自 Local State 缓存"
             _bind(
                 account,
-                "com.microsoft.edgemac",
+                edge.APP_ID,
                 "Microsoft Edge",
                 "profile",
-                f"配置文件「{profile['name']}」({profile['dir']}) 已登录",
+                detail,
                 edge_data["installed"],
             )
             _add_evidence(
@@ -197,11 +211,13 @@ def scan() -> Dict[str, Any]:
             account["kind"] = "msa" if od["kind"] == "personal" else "org"
         if od.get("cid") and not account["cid"]:
             account["cid"] = od["cid"]
+        if od.get("object_id") and not account.get("object_id"):
+            account["object_id"] = od["object_id"]
         if od.get("tenant_id") and not account["tenant_id"] and od["kind"] == "business":
             account["tenant_id"] = od["tenant_id"]
         _bind(
             account,
-            "com.microsoft.OneDrive-mac",
+            onedrive.APP_ID,
             "OneDrive",
             "sync",
             f"{'个人版' if od['kind'] == 'personal' else '企业版'}同步账户（{od['slot']}）",
@@ -210,10 +226,9 @@ def scan() -> Dict[str, Any]:
         _add_evidence(
             account,
             "OneDrive 同步客户端",
-            "~/Library/Group Containers/UBF8T346G9.OneDriveSyncClientSuite/"
-            "Library/Preferences/UBF8T346G9.OneDriveSyncClientSuite.plist",
-            f"AccountInfo_{od['slot']} → {od['email']}",
-            str(od.get("last_seen")) if od.get("last_seen") else None,
+            onedrive.evidence_path(od["slot"]),
+            f"{'UserEmail' if _platform.IS_WINDOWS else 'AccountInfo_' + od['slot']} → {od['email']}",
+            od.get("last_seen"),
         )
 
     # ---------- 6. Office 身份与授权 ----------
@@ -240,7 +255,7 @@ def scan() -> Dict[str, Any]:
                 "com.microsoft.office",
                 "Microsoft Office",
                 "active",
-                "Office 当前登录身份（OCPS-LastSuccessfulUserId）",
+                office.ACTIVE_DETAIL,
                 office_installed,
             )
 
@@ -254,6 +269,21 @@ def scan() -> Dict[str, Any]:
                     f"授权 Office 许可证，有效期至 {lic.get('not_after') or '未知'}",
                     office_installed,
                 )
+
+        # Windows 新一代许可（NextUserLicensing）提供的 账户 -> 许可 映射
+        licensed_ids = office_data.get("licensed_ids") or []
+        if licensed_ids and (
+            (account.get("cid") or "").lower() in licensed_ids
+            or (account.get("object_id") or "").lower() in licensed_ids
+        ):
+            _bind(
+                account,
+                "com.microsoft.office",
+                "Microsoft Office",
+                "licensed",
+                "新一代许可（NextUserLicensing）已授权该账户",
+                office_installed,
+            )
 
     # ---------- 7. Defender 租户匹配 ----------
     defender = env.get("defender") or {}
@@ -450,11 +480,11 @@ def scan() -> Dict[str, Any]:
 
     if not env["mdm"]["enrolled"]:
         warnings.append(
-            "本机未注册 MDM，也没有 Company Portal，因此不存在 Entra ID 设备对象，"
-            "账户仅存在于应用层。"
+            "本机未注册 MDM，因此不存在 Intune 设备对象，账户仅存在于应用层。"
         )
 
     return {
+        "platform": _platform.platform_name(),
         "generated_at": iso(time.time()),
         "duration_ms": int((time.time() - started) * 1000),
         "summary": {
@@ -484,7 +514,7 @@ def scan() -> Dict[str, Any]:
             },
             "edge": {"available": edge_data["available"], "profiles": len(edge_data["profiles"])},
             "onedrive": {
-                "available": onedrive_data["plist_available"],
+                "available": onedrive_data.get("available"),
                 "accounts": len(onedrive_data["accounts"]),
             },
             "office": {"available": office_data["prefs_available"]},

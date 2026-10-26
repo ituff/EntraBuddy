@@ -1,17 +1,33 @@
-"""演示数据：用虚构账户渲染界面，便于截图与文档展示。
+"""演示数据：用虚构账户渲染界面，便于截图与文档展示（双平台）。
 
 用法：python app.py --demo
 演示模式下所有写操作都会被拒绝。
+设备信息 / 证据路径 / 应用 ID 按当前平台动态生成，其余结构共享。
 """
 
 from __future__ import annotations
 
 import copy
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
-from .util import iso
+from . import _platform
+from .collectors import edge, environment, office, oneauth, onedrive
+from .util import human_path, iso
+from .util import APP_SUPPORT
+
+ACTIVE_DETAIL = office.ACTIVE_DETAIL
+ONEAUTH_DIR = human_path(oneauth.BLOB_DIR)
+SNAPSHOT_DIR = human_path(os.path.join(APP_SUPPORT, "snapshots"))
+
+# 应用 ID 随平台取自环境采集器（浏览器 / 同步 / 聊天）
+_IDS = {spec["kind"]: spec["id"] for spec in environment.KNOWN_APPS}
+EDGE_ID = edge.APP_ID
+ONEDRIVE_ID = onedrive.APP_ID
+TEAMS_ID = _IDS.get("chat", "com.microsoft.teams")
+DEFENDER_ID = _IDS.get("security", "com.microsoft.wdav")
 
 
 def _ts(days_ago: float) -> str:
@@ -71,9 +87,118 @@ def _binding(app_id: str, name: str, roles: List[str], details: List[str], insta
     }
 
 
+def _device_block() -> Dict[str, Any]:
+    """设备身份 / 注册状态 / 合规信号，mac 与 Windows 各一套。"""
+    if _platform.IS_MACOS:
+        checks = [
+            {"id": "entra", "label": "Entra ID 设备注册", "status": "ok", "value": "已注册",
+             "detail": "检测到 Company Portal 与设备证书"},
+            {"id": "mdm", "label": "MDM 注册", "status": "ok", "value": "已注册",
+             "detail": "设备受移动设备管理，可下发合规策略"},
+            {"id": "filevault", "label": "磁盘加密", "status": "ok", "value": "已启用", "detail": "FileVault 已开启"},
+            {"id": "sip", "label": "系统完整性保护", "status": "ok", "value": "已启用",
+             "detail": "System Integrity Protection status: enabled."},
+            {"id": "firewall", "label": "防火墙", "status": "warn", "value": "已关闭",
+             "detail": "Firewall is disabled. (State = 0)"},
+            {"id": "os", "label": "操作系统版本", "status": "ok", "value": "macOS 15.1", "detail": "在支持窗口内"},
+            {"id": "defender", "label": "端点防护", "status": "ok", "value": "已载入租户",
+             "detail": "org_id=11111111-2222-3333-4444-555555555555"},
+        ]
+        identity = {
+            "hostname": "MBP-DEMO",
+            "local_hostname": "MBP-DEMO",
+            "model": "MacBookPro18,3",
+            "chip": "Apple M1 Pro",
+            "serial": "C02XXXXXXXXX",
+            "os_name": "macOS",
+            "os_version": "15.1",
+            "os_build": "24B83",
+        }
+        enrollment = {
+            "mdm": {"enrolled": True, "dep": True, "lines": ["MDM enrollment: Yes"]},
+            "entra": {
+                "registered": True,
+                "company_portal": True,
+                "broker_files": 6,
+                "device_certificate": True,
+                "signals": [],
+                "note": "macOS 没有 Windows 那种「加入 Entra ID」；设备注册由 Company Portal 的"
+                "工作区加入流程完成，凭据存放在系统钥匙串。",
+            },
+            "ad": {"joined": False, "domain": None},
+        }
+    else:
+        checks = [
+            {"id": "entra", "label": "Entra ID 设备注册", "status": "ok", "value": "已注册",
+             "detail": "设备已加入 Entra ID（AzureAdJoined : YES）"},
+            {"id": "mdm", "label": "MDM 注册", "status": "ok", "value": "已注册",
+             "detail": "设备受移动设备管理，可下发合规策略"},
+            {"id": "bitlocker", "label": "磁盘加密", "status": "ok", "value": "已启用",
+             "detail": "BitLocker 保护已开启（C:）"},
+            {"id": "firewall", "label": "防火墙", "status": "ok", "value": "已启用",
+             "detail": "所有配置文件的 Windows 防火墙均已开启"},
+            {"id": "os", "label": "操作系统版本", "status": "ok", "value": "Windows 11 Pro 24H2",
+             "detail": "Windows 11，在支持窗口内"},
+            {"id": "defender", "label": "端点防护", "status": "ok", "value": "已载入租户",
+             "detail": "org_id=11111111-2222-3333-4444-555555555555"},
+            {"id": "smartscreen", "label": "SmartScreen", "status": "warn", "value": "已关闭",
+             "detail": "SmartScreenEnabled = Off"},
+        ]
+        identity = {
+            "hostname": "DEMO-STATION",
+            "local_hostname": "DEMO-STATION",
+            "model": "Fabrikam Surface Laptop 6",
+            "chip": "Intel Core Ultra 7 165H",
+            "serial": "DEMOXXXXXXX",
+            "os_name": "Windows 11 Pro",
+            "os_version": "24H2",
+            "os_build": "26100.2894",
+        }
+        enrollment = {
+            "mdm": {
+                "enrolled": True,
+                "provider": "MS DM Server",
+                "enrollments": [],
+                "lines": ["Enrollment xxxxxxxx : MS DM Server (alice.chen@contoso.com)"],
+            },
+            "entra": {
+                "registered": True,
+                "aad_joined": True,
+                "workplace_joined": True,
+                "device_id": "eeee5555-ffff-6666-aaaa-bbbbbbbbbbbb",
+                "tenant_name": "Contoso Ltd",
+                "tenant_id": "11111111-2222-3333-4444-555555555555",
+                "azure_ad_prt": True,
+                "signals": [],
+                "note": "设备注册状态来自 dsregcmd /status：AzureAdJoined 表示设备对象在租户目录中，"
+                "WorkplaceJoined 表示仅添加了工作/学校账户（应用层 SSO）。",
+            },
+            "ad": {"joined": False, "domain": None},
+        }
+
+    passed = sum(1 for c in checks if c["status"] == "ok")
+    return {
+        "identity": identity,
+        "enrollment": enrollment,
+        "compliance": {
+            "checks": checks,
+            "passed": passed,
+            "total": len(checks),
+            "score": round(passed / len(checks) * 100),
+        },
+        "note": "以上为本机可验证的信号。Intune 的实际合规结论由云端策略计算，"
+        "需要 Graph 授权才能读取，本地无法替代。",
+    }
+
+
 def payload() -> Dict[str, Any]:
     today = datetime.now().date()
     license_end = (today + timedelta(days=48)).isoformat()
+    edge_profile_label = (
+        "配置文件「默认」(Default) 已登录"
+        if _platform.IS_MACOS
+        else "配置文件「个人」(Profile 3) 已登录"
+    )
 
     accounts = [
         _account(
@@ -93,12 +218,12 @@ def payload() -> Dict[str, Any]:
                     "Microsoft Office",
                     ["active", "cached"],
                     [
-                        "Office 当前登录身份（OCPS-LastSuccessfulUserId）",
+                        ACTIVE_DETAIL,
                         "Office 套件身份存储中留有该账户",
                     ],
                 ),
                 _binding(
-                    "com.microsoft.teams2",
+                    TEAMS_ID,
                     "Microsoft Teams",
                     ["profile"],
                     ["企业账户已登录"],
@@ -108,14 +233,13 @@ def payload() -> Dict[str, Any]:
             evidence=[
                 {
                     "source": "OneAuth 身份缓存",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "alice.chen@contoso.com_identity_provider",
+                    "path": os.path.join(ONEAUTH_DIR, "alice.chen@contoso.com_identity_provider"),
                     "detail": "identity_provider = OrgId",
                     "timestamp": _ts(0.05),
                 },
                 {
                     "source": "主域发现 (HRD)",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/contoso.com_hrd",
+                    "path": os.path.join(ONEAUTH_DIR, "contoso.com_hrd"),
                     "detail": "域 contoso.com → 租户 11111111-2222-3333-4444-555555555555",
                     "timestamp": _ts(0.05),
                 },
@@ -155,44 +279,41 @@ def payload() -> Dict[str, Any]:
                     ],
                 ),
                 _binding(
-                    "com.microsoft.OneDrive-mac",
+                    ONEDRIVE_ID,
                     "OneDrive",
                     ["sync"],
                     ["个人版同步账户（Personal）"],
                 ),
                 _binding(
-                    "com.microsoft.edgemac",
+                    EDGE_ID,
                     "Microsoft Edge",
                     ["profile"],
-                    ["配置文件「默认」(Default) 已登录"],
+                    [edge_profile_label],
                 ),
             ],
             evidence=[
                 {
                     "source": "OneAuth 身份缓存",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "alice.chen@outlook.com_identity_provider",
+                    "path": os.path.join(ONEAUTH_DIR, "alice.chen@outlook.com_identity_provider"),
                     "detail": "identity_provider = MSAccount",
                     "timestamp": _ts(12),
                 },
                 {
                     "source": "OneAuth 个人资料",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "9999999999999999_substrate_profile",
+                    "path": os.path.join(ONEAUTH_DIR, "9999999999999999_substrate_profile"),
                     "detail": "cid=9999999999999999，注册地=US",
                     "timestamp": _ts(0.04),
                 },
                 {
                     "source": "OneDrive 同步客户端",
-                    "path": "~/Library/Group Containers/UBF8T346G9.OneDriveSyncClientSuite/"
-                    "Library/Preferences/UBF8T346G9.OneDriveSyncClientSuite.plist",
-                    "detail": "AccountInfo_Personal → alice.chen@outlook.com",
+                    "path": onedrive.evidence_path("Personal"),
+                    "detail": f"AccountInfo_Personal → alice.chen@outlook.com",
                     "timestamp": None,
                 },
                 {
                     "source": "Edge 配置文件",
                     "path": None,
-                    "detail": "Default / 默认",
+                    "detail": "Default / 默认" if _platform.IS_MACOS else "Profile 3 / 个人",
                     "timestamp": None,
                 },
             ],
@@ -219,15 +340,15 @@ def payload() -> Dict[str, Any]:
             evidence=[
                 {
                     "source": "OneAuth 身份缓存",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "bob.wang@fabrikam.onmicrosoft.com_identity_provider",
+                    "path": os.path.join(
+                        ONEAUTH_DIR, "bob.wang@fabrikam.onmicrosoft.com_identity_provider"
+                    ),
                     "detail": "identity_provider = OrgId",
                     "timestamp": _ts(31),
                 },
                 {
                     "source": "主域发现 (HRD)",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "fabrikam.onmicrosoft.com_hrd",
+                    "path": os.path.join(ONEAUTH_DIR, "fabrikam.onmicrosoft.com_hrd"),
                     "detail": "域 fabrikam.onmicrosoft.com → 租户 66666666-7777-8888-9999-aaaaaaaaaaaa",
                     "timestamp": _ts(31),
                 },
@@ -256,14 +377,13 @@ def payload() -> Dict[str, Any]:
             evidence=[
                 {
                     "source": "OneAuth 身份缓存",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "carol@litware.cn_identity_provider",
+                    "path": os.path.join(ONEAUTH_DIR, "carol@litware.cn_identity_provider"),
                     "detail": "identity_provider = OrgId",
                     "timestamp": _ts(180),
                 },
                 {
                     "source": "主域发现 (HRD)",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/litware.cn_hrd",
+                    "path": os.path.join(ONEAUTH_DIR, "litware.cn_hrd"),
                     "detail": "域 litware.cn → 租户 cccc3333-dddd-4444-eeee-555566667777",
                     "timestamp": _ts(180),
                 },
@@ -291,8 +411,7 @@ def payload() -> Dict[str, Any]:
             evidence=[
                 {
                     "source": "OneAuth 身份缓存",
-                    "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/"
-                    "dave@outlook.com_identity_provider",
+                    "path": os.path.join(ONEAUTH_DIR, "dave@outlook.com_identity_provider"),
                     "detail": "identity_provider = MSAccount",
                     "timestamp": _ts(420),
                 }
@@ -312,7 +431,7 @@ def payload() -> Dict[str, Any]:
                     "key": "alice.chen@contoso.com",
                     "roles": ["active", "cached"],
                     "details": [
-                        "Office 当前登录身份（OCPS-LastSuccessfulUserId）",
+                        ACTIVE_DETAIL,
                         "Office 套件身份存储中留有该账户",
                     ],
                 },
@@ -346,7 +465,7 @@ def payload() -> Dict[str, Any]:
             ],
         },
         {
-            "id": "com.microsoft.edgemac",
+            "id": EDGE_ID,
             "name": "Microsoft Edge",
             "kind": "browser",
             "installed": True,
@@ -355,12 +474,12 @@ def payload() -> Dict[str, Any]:
                     "upn": "alice.chen@outlook.com",
                     "key": "alice.chen@outlook.com",
                     "roles": ["profile"],
-                    "details": ["配置文件「默认」(Default) 已登录"],
+                    "details": [edge_profile_label],
                 }
             ],
         },
         {
-            "id": "com.microsoft.OneDrive-mac",
+            "id": ONEDRIVE_ID,
             "name": "OneDrive",
             "kind": "sync",
             "installed": True,
@@ -374,7 +493,7 @@ def payload() -> Dict[str, Any]:
             ],
         },
         {
-            "id": "com.microsoft.teams2",
+            "id": TEAMS_ID,
             "name": "Microsoft Teams",
             "kind": "chat",
             "installed": False,
@@ -389,60 +508,8 @@ def payload() -> Dict[str, Any]:
         },
     ]
 
-    checks = [
-        {
-            "id": "entra",
-            "label": "Entra ID 设备注册",
-            "status": "ok",
-            "value": "已注册",
-            "detail": "检测到 Company Portal 与设备证书",
-        },
-        {
-            "id": "mdm",
-            "label": "MDM 注册",
-            "status": "ok",
-            "value": "已注册",
-            "detail": "设备受移动设备管理，可下发合规策略",
-        },
-        {
-            "id": "filevault",
-            "label": "磁盘加密",
-            "status": "ok",
-            "value": "已启用",
-            "detail": "FileVault 已开启",
-        },
-        {
-            "id": "sip",
-            "label": "系统完整性保护",
-            "status": "ok",
-            "value": "已启用",
-            "detail": "System Integrity Protection status: enabled.",
-        },
-        {
-            "id": "firewall",
-            "label": "防火墙",
-            "status": "warn",
-            "value": "已关闭",
-            "detail": "Firewall is disabled. (State = 0)",
-        },
-        {
-            "id": "os",
-            "label": "操作系统版本",
-            "status": "ok",
-            "value": "macOS 15.1",
-            "detail": "在支持窗口内",
-        },
-        {
-            "id": "defender",
-            "label": "端点防护",
-            "status": "ok",
-            "value": "已载入租户",
-            "detail": "org_id=11111111-2222-3333-4444-555555555555",
-        },
-    ]
-    passed = sum(1 for c in checks if c["status"] == "ok")
-
     return {
+        "platform": _platform.platform_name(),
         "generated_at": iso(time.time()),
         "duration_ms": 1842,
         "demo": True,
@@ -463,38 +530,7 @@ def payload() -> Dict[str, Any]:
             "共 3 个账户超过一天未活跃，属于历史缓存，可在清理时移除。",
             "检测到 1 个世纪互联（21Vianet）账户，其身份与全球云互不通用。",
         ],
-        "device": {
-            "identity": {
-                "hostname": "MBP-DEMO",
-                "local_hostname": "MBP-DEMO",
-                "model": "MacBookPro18,3",
-                "chip": "Apple M1 Pro",
-                "serial": "C02XXXXXXXXX",
-                "os_version": "15.1",
-                "os_build": "24B83",
-            },
-            "enrollment": {
-                "mdm": {"enrolled": True, "dep": True, "lines": ["MDM enrollment: Yes"]},
-                "entra": {
-                    "registered": True,
-                    "company_portal": True,
-                    "broker_files": 6,
-                    "device_certificate": True,
-                    "signals": [],
-                    "note": "macOS 没有 Windows 那种「加入 Entra ID」；设备注册由 Company Portal 的"
-                    "工作区加入流程完成，凭据存放在系统钥匙串。",
-                },
-                "ad": {"joined": False, "domain": None},
-            },
-            "compliance": {
-                "checks": checks,
-                "passed": passed,
-                "total": len(checks),
-                "score": round(passed / len(checks) * 100),
-            },
-            "note": "以上为本机可验证的信号。Intune 的实际合规结论由云端策略计算，"
-            "需要 Graph 授权才能读取，本地无法替代。",
-        },
+        "device": _device_block(),
         "changes": {
             "snapshots": [
                 {
@@ -503,7 +539,7 @@ def payload() -> Dict[str, Any]:
                     "signature": "demo1",
                     "summary": {"total": 4},
                     "account_count": 4,
-                    "path": "~/Library/Application Support/EntraBuddy/snapshots/20261025-093012.json",
+                    "path": os.path.join(SNAPSHOT_DIR, "20261025-093012.json"),
                 },
                 {
                     "id": "20261024-214400",
@@ -511,7 +547,7 @@ def payload() -> Dict[str, Any]:
                     "signature": "demo2",
                     "summary": {"total": 5},
                     "account_count": 5,
-                    "path": "~/Library/Application Support/EntraBuddy/snapshots/20261024-214400.json",
+                    "path": os.path.join(SNAPSHOT_DIR, "20261024-214400.json"),
                 },
             ],
             "diff": {
@@ -528,7 +564,7 @@ def payload() -> Dict[str, Any]:
                                 "from": "2 项",
                                 "to": "1 项",
                                 "gained": [],
-                                "lost": ["com.microsoft.edgemac:profile"],
+                                "lost": [f"{EDGE_ID}:profile"],
                             }
                         ],
                     }
@@ -552,7 +588,7 @@ def payload() -> Dict[str, Any]:
         "sources": {
             "oneauth": {
                 "available": True,
-                "path": "~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore",
+                "path": ONEAUTH_DIR,
                 "file_count": 42,
             },
             "edge": {"available": True, "profiles": 3},

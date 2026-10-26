@@ -37,6 +37,7 @@ def device_identity() -> Dict[str, Any]:
         "model": run(["sysctl", "-n", "hw.model"], timeout=4),
         "chip": run(["sysctl", "-n", "machdep.cpu.brand_string"], timeout=4),
         "serial": _serial(),
+        "os_name": "macOS",
         "os_version": run(["sw_vers", "-productVersion"], timeout=4),
         "os_build": run(["sw_vers", "-buildVersion"], timeout=4),
     }

@@ -502,7 +502,7 @@ function renderDevice(device) {
     ["型号", id.model, false],
     ["芯片", id.chip, false],
     ["序列号", id.serial, true],
-    ["系统版本", id.os_version ? `macOS ${id.os_version} (${id.os_build || ""})` : null, false],
+    ["系统版本", id.os_name ? `${id.os_name} ${id.os_version || ""} (${id.os_build || ""})` : null, false],
   ].filter(([, v]) => v);
 
   document.getElementById("device-identity").replaceChildren(
@@ -541,8 +541,12 @@ function renderDevice(device) {
       entra.registered ? "ok" : "fail",
       "Entra ID 设备注册",
       entra.registered
-        ? "检测到 Company Portal 或设备证书"
-        : "未找到 Company Portal、设备证书或 broker 缓存",
+        ? (STATE.data?.platform === "windows"
+          ? "dsregcmd 显示已加入 Entra ID 或已添加工作账户"
+          : "检测到 Company Portal 或设备证书")
+        : (STATE.data?.platform === "windows"
+          ? "dsregcmd 显示 AzureAdJoined / WorkplaceJoined 均为 NO"
+          : "未找到 Company Portal、设备证书或 broker 缓存"),
       entra.registered ? "已注册" : "未注册"
     ),
     stateRow(
@@ -856,7 +860,9 @@ async function openCleanup(account) {
             "div",
             { class: "modal-warn" },
             h("strong", { text: "操作前会自动备份" }),
-            "所有文件会先复制到 ~/Library/Application Support/EntraBuddy/backups，"
+            (STATE.data?.platform === "windows"
+              ? "所有文件会先复制到 %LOCALAPPDATA%\EntraBuddy\backups，"
+              : "所有文件会先复制到 ~/Library/Application Support/EntraBuddy/backups，")
               + "备份校验通过后才删除。可在「变更」页恢复。"
           ),
           h(
@@ -1121,6 +1127,11 @@ async function load(force = false) {
   try {
     STATE.data = await getJSON("/api/scan");
     document.getElementById("scan-time").textContent = `扫描于 ${absTime(STATE.data.generated_at)}`;
+    const platformLabel =
+      STATE.data.platform === "windows" ? "Windows 微软账户管家"
+      : STATE.data.platform === "macos" ? "macOS 微软账户管家"
+      : "微软账户管家";
+    document.getElementById("platform-subtitle").textContent = platformLabel;
     renderAll();
     if (STATE.tab === "changes") loadBackups();
   } catch (err) {

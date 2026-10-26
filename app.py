@@ -15,7 +15,11 @@ from typing import Any, Callable, Dict
 from entrabuddy import cleanup, demo, snapshots
 from entrabuddy.scan import scan
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# PyInstaller 打包后资源解压到 sys._MEIPASS（Windows 单文件 exe 用）
+if getattr(sys, "frozen", False):
+    ROOT = sys._MEIPASS
+else:
+    ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
 
 # 写操作必须带这个头：浏览器跨站请求无法自定义头（会触发预检，而本服务不响应预检）
@@ -175,7 +179,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="EntraBuddy - macOS 微软账户管家")
+    parser = argparse.ArgumentParser(description="EntraBuddy - 微软账户管家（macOS / Windows）")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument(
