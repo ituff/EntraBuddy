@@ -118,3 +118,27 @@ def collect() -> Dict[str, Any]:
         )
 
     return result
+
+
+# 允许清理的 slot 白名单
+CLEANABLE_SLOTS = ("Personal",) + tuple(f"Business{i}" for i in range(1, 11))
+
+
+def account_slot_paths(upn: str) -> List[str]:
+    """返回该邮箱对应的 OneDrive 账户注册表键路径（onedrive 清理范围用）。
+
+    只匹配 UserEmail 精确相等（忽略大小写）且 slot 在白名单内的键。
+    """
+    if winreg is None:
+        return []
+    target = (upn or "").lower()
+    if not target:
+        return []
+    out: List[str] = []
+    for slot in reg_subkeys(winreg.HKEY_CURRENT_USER, ACCOUNTS_KEY):
+        if slot not in CLEANABLE_SLOTS:
+            continue
+        values = reg_values(winreg.HKEY_CURRENT_USER, ACCOUNTS_KEY + "\\" + slot)
+        if str(values.get("UserEmail") or "").strip().lower() == target:
+            out.append("HKCU" + "\\" + ACCOUNTS_KEY + "\\" + slot)
+    return out

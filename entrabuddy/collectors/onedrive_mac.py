@@ -69,3 +69,8 @@ def collect() -> Dict[str, Any]:
         )
 
     return result
+
+
+def account_slot_paths(upn: str) -> List[str]:
+    """macOS 的 OneDrive 账户存在 plist 中，自动清理易损坏配置，暂不支持。"""
+    return []

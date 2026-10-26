@@ -124,11 +124,17 @@ class Handler(SimpleHTTPRequestHandler):
 
     # ---------- 接口实现 ----------
 
+    @staticmethod
+    def _apps_from(body: Dict[str, Any]) -> Any:
+        """读取清理范围参数；未提供则用后端默认（identity），非法值交给 cleanup 报错。"""
+        apps = body.get("apps")
+        return apps if isinstance(apps, list) else None
+
     def _cleanup_plan(self, body: Dict[str, Any]) -> Dict[str, Any]:
         upn = (body.get("upn") or "").strip()
         if not upn:
             raise ApiError("缺少 upn")
-        return cleanup.plan(upn)
+        return cleanup.plan(upn, apps=self._apps_from(body))
 
     def _cleanup_run(self, body: Dict[str, Any]) -> Dict[str, Any]:
         upn = (body.get("upn") or "").strip()
@@ -137,7 +143,11 @@ class Handler(SimpleHTTPRequestHandler):
         if body.get("confirm") != "yes":
             raise ApiError("未确认，已中止")
         expected = body.get("expected")
-        return cleanup.execute(upn, expect_files=expected if isinstance(expected, int) else None)
+        return cleanup.execute(
+            upn,
+            expect_files=expected if isinstance(expected, int) else None,
+            apps=self._apps_from(body),
+        )
 
     def _cleanup_batch_plan(self, body: Dict[str, Any]) -> Dict[str, Any]:
         upns = body.get("upns") or []
@@ -145,7 +155,7 @@ class Handler(SimpleHTTPRequestHandler):
             raise ApiError("缺少 upns")
         if len(upns) > 20:
             raise ApiError("一次最多处理 20 个账户")
-        return cleanup.plan_many([str(u) for u in upns])
+        return cleanup.plan_many([str(u) for u in upns], apps=self._apps_from(body))
 
     def _cleanup_batch_run(self, body: Dict[str, Any]) -> Dict[str, Any]:
         upns = body.get("upns") or []
@@ -157,6 +167,7 @@ class Handler(SimpleHTTPRequestHandler):
         return cleanup.execute_many(
             [str(u) for u in upns],
             expect_files=expected if isinstance(expected, int) else None,
+            apps=self._apps_from(body),
         )
 
     def _cleanup_restore(self, body: Dict[str, Any]) -> Dict[str, Any]:

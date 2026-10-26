@@ -239,3 +239,32 @@ def collect() -> Dict[str, Any]:
         "licenses": collect_licenses(),
         "apps": apps,
     }
+
+
+def license_paths_for_cid(cid: str) -> List[str]:
+    """返回属于该 CID 的许可证文件路径（office 清理范围用）。"""
+    target = (cid or "").lower()
+    if not target:
+        return []
+    return [l["path"] for l in collect_licenses() if (l.get("cid") or "").lower() == target]
+
+
+def profile_registry_keys(account_ids: List[str]) -> List[str]:
+    """返回该账户的 Office 身份 Profiles 子键路径（office 清理范围用）。
+
+    只匹配 <account_id>_<LiveId|ADAL> 形式且 account_id 在白名单内的子键，
+    路径由代码构造，不接受外部输入。
+    """
+    if winreg is None:
+        return []
+    allowed = {a.lower() for a in account_ids if a}
+    root = _office_key(r"Common\Identity")
+    if not root:
+        return []
+    profiles_path = root + r"\Profiles"
+    out: List[str] = []
+    for name in reg_subkeys(winreg.HKEY_CURRENT_USER, profiles_path):
+        match = re.match(r"^(.+)_(LiveId|ADAL)$", name)
+        if match and match.group(1).lower() in allowed:
+            out.append("HKCU" + "\\" + profiles_path + "\\" + name)
+    return out

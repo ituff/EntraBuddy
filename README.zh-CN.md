@@ -68,7 +68,17 @@ EntraBuddy 把这些信息汇总成一张可读的视图，并且**只读本地�
 
 ### 备份式清理
 
-残留的身份缓存可以清理，但**先备份再删**：文件复制到本机数据目录
+残留的身份缓存可以清理，但**先备份再删**，清理时可以**按范围选择**：
+
+| 范围 | 触及的存储 | 效果 |
+|------|-----------|------|
+| 身份缓存 | OneAuth blobs（默认） | Office 全家桶与新 OneDrive 客户端共享的登录缓存，清理后需重新登录 |
+| 仅 Office | 许可证文件 + Office 身份注册记录 | 取消激活并移除 Office 侧身份，**不影响 OneDrive / Edge** |
+| 仅 OneDrive | OneDrive 账户注册表键 | 解绑同步账户，本地文件夹保留，重新登录可恢复 |
+
+Edge 登录态在 Chromium 配置文件内部，自动清理易损坏配置文件，界面上会明示请到应用内退出。
+注册表键删除前完整快照进备份，回滚时原样重建。
+：文件复制到本机数据目录
 （macOS `~/Library/Application Support/EntraBuddy/backups`，Windows
 `%LOCALAPPDATA%\EntraBuddy\backups`）并逐个校验大小，任一失败整体中止。
 支持单账户与批量，可一键回滚。

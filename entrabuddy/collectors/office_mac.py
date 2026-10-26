@@ -13,6 +13,7 @@ from ..util import HOME, iso, mtime, read_bytes, read_defaults
 LICENSE_ROOT = os.path.join(
     HOME, "Library/Group Containers/UBF8T346G9.Office/Licenses"
 )
+LICENSE_ROOTS = [LICENSE_ROOT]
 OFFICE_PREFS_DOMAIN = "com.microsoft.office"
 
 # scan.py 通用化所需的平台常量
@@ -142,3 +143,16 @@ def collect() -> Dict[str, Any]:
         ],
     }
     return result
+
+
+def license_paths_for_cid(cid: str) -> List[str]:
+    """返回属于该 CID 的许可证文件路径（office 清理范围用）。"""
+    target = (cid or "").lower()
+    if not target:
+        return []
+    return [l["path"] for l in collect_licenses() if (l.get("cid") or "").lower() == target]
+
+
+def profile_registry_keys(account_ids: List[str]) -> List[str]:
+    """macOS 没有对应 Office 身份注册表结构，office 范围在 mac 上只清许可证文件。"""
+    return []

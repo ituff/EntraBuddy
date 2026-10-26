@@ -755,47 +755,33 @@ function onModalKey(event) {
   if (event.key === "Escape") closeModal();
 }
 
+const CLEANUP_SCOPES = {
+  identity: {
+    label: "OneAuth 身份缓存",
+    desc: "Office 全家桶与新 OneDrive 客户端共享的登录缓存，清理后相关应用需重新登录。",
+  },
+  office: {
+    label: "仅 Office（许可证与身份记录）",
+    desc: "删除 Office 许可证文件与身份注册记录并取消激活；不影响 OneDrive / Edge。",
+  },
+  onedrive: {
+    label: "仅 OneDrive（同步账户）",
+    desc: "解绑 OneDrive 同步账户，本地同步文件夹保留，重新登录后可恢复同步。",
+  },
+};
+
 async function openCleanup(account) {
   const root = document.getElementById("modal-root");
-  root.replaceChildren(
-    h(
-      "div",
-      { class: "modal-overlay", onclick: (e) => e.target.classList.contains("modal-overlay") && closeModal() },
-      h(
-        "div",
-        { class: "modal" },
-        h("div", { class: "modal-head" }, h("h2", { text: "正在生成清理计划…" })),
-        h("div", { class: "modal-body" }, h("div", { class: "diff-empty", text: "读取账户缓存文件…" }))
-      )
-    )
-  );
   document.addEventListener("keydown", onModalKey);
 
-  let plan;
-  try {
-    plan = await postJSON("/api/cleanup/plan", { upn: account.upn });
-  } catch (err) {
-    renderModalError(err.message);
-    return;
+  // 按该账户实际拥有的应用绑定推导可选清理范围
+  const appIds = new Set((account.apps || []).map((a) => a.app_id));
+  const available = ["identity"];
+  if (appIds.has("com.microsoft.office")) available.push("office");
+  if (appIds.has("com.microsoft.onedrive") || appIds.has("com.microsoft.OneDrive-mac")) {
+    available.push("onedrive");
   }
-
-  if (!plan.file_count) {
-    root.replaceChildren(
-      h(
-        "div",
-        { class: "modal-overlay", onclick: (e) => e.target.classList.contains("modal-overlay") && closeModal() },
-        h(
-          "div",
-          { class: "modal" },
-          h("div", { class: "modal-head" }, h("h2", { text: "没有可清理的缓存" }), h("p", { text: account.upn })),
-          h("div", { class: "modal-body" }, h("div", { class: "diff-empty", text: "该账户没有独立的身份缓存文件。" })),
-          h("div", { class: "modal-foot" }, h("button", { class: "btn", type: "button", onclick: closeModal }, "关闭"))
-        )
-      )
-    );
-    return;
-  }
-
+  const hasEdge = appIds.has("com.microsoft.edge") || appIds.has("com.microsoft.edgemac");
   const activeWarning = account.is_active_today
     ? h(
         "div",
@@ -805,13 +791,126 @@ async function openCleanup(account) {
       )
     : null;
 
-  const fileRows = plan.files.map((f) =>
+  const scopeRows = available.map((scope) => {
+    const meta = CLEANUP_SCOPES[scope];
+    const box = h("input", { type: "checkbox", id: `cleanup-scope-${scope}` });
+    box.checked = scope === "identity";
+    return h(
+      "div",
+      { class: "scope-row" },
+      box,
+      h(
+        "div",
+        { class: "scope-text" },
+        h("label", { class: "scope-label", for: `cleanup-scope-${scope}`, text: meta.label }),
+        h("div", { class: "scope-desc", text: meta.desc })
+      )
+    );
+  });
+
+  const planBtn = h(
+    "button",
+    {
+      class: "btn btn-danger",
+      type: "button",
+      onclick: async () => {
+        // 直接读 DOM 勾选状态,不依赖 change 事件
+        const apps = available.filter(
+          (s) => document.getElementById(`cleanup-scope-${s}`).checked
+        );
+        if (!apps.length) return;
+        planBtn.disabled = true;
+        planBtn.textContent = "正在生成清理计划…";
+        try {
+          const plan = await postJSON("/api/cleanup/plan", { upn: account.upn, apps });
+          renderCleanupPlan(account, plan, apps);
+        } catch (err) {
+          renderModalError(err.message);
+        }
+      },
+    },
+    "生成清理计划"
+  );
+
+  root.replaceChildren(
+    h(
+      "div",
+      { class: "modal-overlay", onclick: (e) => e.target.classList.contains("modal-overlay") && closeModal() },
+      h(
+        "div",
+        { class: "modal" },
+        h(
+          "div",
+          { class: "modal-head" },
+          h("h2", { text: "清理账户身份" }),
+          h("p", { text: account.upn })
+        ),
+        h(
+          "div",
+          { class: "modal-body" },
+          activeWarning,
+          h("div", { class: "scope-title", text: "选择清理范围" }),
+          ...scopeRows,
+          hasEdge
+            ? h("p", { class: "card-foot", text: "· Edge 登录态不支持自动清理，请在 Edge 设置内退出对应配置文件。" })
+            : null,
+          h(
+            "div",
+            { class: "modal-warn" },
+            h("strong", { text: "操作前会自动备份" }),
+            (STATE.data?.platform === "windows"
+              ? "所有内容会先复制到 %LOCALAPPDATA%\EntraBuddyackups，"
+              : "所有内容会先复制到 ~/Library/Application Support/EntraBuddy/backups，")
+              + "校验通过后才删除。可在「变更」页恢复。"
+          )
+        ),
+        h(
+          "div",
+          { class: "modal-foot" },
+          h("button", { class: "btn", type: "button", onclick: closeModal }, "取消"),
+          planBtn
+        )
+      )
+    )
+  );
+}
+
+function renderCleanupPlan(account, plan, apps) {
+  const root = document.getElementById("modal-root");
+
+  if (!plan.total_count) {
+    root.replaceChildren(
+      h(
+        "div",
+        { class: "modal-overlay", onclick: (e) => e.target.classList.contains("modal-overlay") && closeModal() },
+        h(
+          "div",
+          { class: "modal" },
+          h("div", { class: "modal-head" }, h("h2", { text: "没有可清理的内容" }), h("p", { text: account.upn })),
+          h("div", { class: "modal-body" }, h("div", { class: "diff-empty", text: "所选范围内没有该账户的缓存项。" })),
+          h("div", { class: "modal-foot" }, h("button", { class: "btn", type: "button", onclick: closeModal }, "关闭"))
+        )
+      )
+    );
+    return;
+  }
+
+  const itemRows = plan.files.map((f) =>
     h(
       "div",
       { class: "file-row" },
       h("span", { class: "fname", text: f.name }),
       h("span", { class: "freason", text: f.reason }),
       h("span", { class: "fsize", text: bytes(f.size) })
+    )
+  );
+  const keyRows = (plan.registry_keys || []).map((k) =>
+    h(
+      "div",
+      { class: "file-row" },
+      h("span", { class: "fname", text: k.path }),
+      h("span", { class: "freason", text: k.reason }),
+      h("span", { class: "fsize", text: "注册表" })
     )
   );
 
@@ -826,7 +925,8 @@ async function openCleanup(account) {
         try {
           const res = await postJSON("/api/cleanup/run", {
             upn: account.upn,
-            expected: plan.file_count,
+            expected: plan.total_count,
+            apps,
             confirm: "yes",
           });
           renderCleanupResult(res, account.upn);
@@ -839,6 +939,11 @@ async function openCleanup(account) {
     "确认清理并备份"
   );
 
+  const summaryParts = [];
+  if (plan.file_count) summaryParts.push(h("span", { text: `${plan.file_count} 个文件` }));
+  if (plan.registry_count) summaryParts.push(h("span", { text: `${plan.registry_count} 个注册表项` }));
+  summaryParts.push(h("span", { text: bytes(plan.total_bytes) }));
+
   root.replaceChildren(
     h(
       "div",
@@ -849,30 +954,20 @@ async function openCleanup(account) {
         h(
           "div",
           { class: "modal-head" },
-          h("h2", { text: "清理账户缓存" }),
+          h("h2", { text: "确认清理" }),
           h("p", { text: account.upn })
         ),
         h(
           "div",
           { class: "modal-body" },
-          activeWarning,
-          h(
-            "div",
-            { class: "modal-warn" },
-            h("strong", { text: "操作前会自动备份" }),
-            (STATE.data?.platform === "windows"
-              ? "所有文件会先复制到 %LOCALAPPDATA%\EntraBuddy\backups，"
-              : "所有文件会先复制到 ~/Library/Application Support/EntraBuddy/backups，")
-              + "备份校验通过后才删除。可在「变更」页恢复。"
-          ),
           h(
             "div",
             { class: "summary-line" },
-            h("span", { text: `${plan.file_count} 个文件` }),
-            h("span", { text: bytes(plan.total_bytes) }),
+            ...summaryParts,
             h("span", { text: plan.root })
           ),
-          ...fileRows,
+          ...itemRows,
+          ...keyRows,
           ...(plan.warnings || []).map((w) => h("p", { class: "card-foot", text: `· ${w}` }))
         ),
         h(
@@ -885,6 +980,7 @@ async function openCleanup(account) {
     )
   );
 }
+
 
 async function openBatchCleanup() {
   const stale = STATE.data.accounts.filter((a) => a.is_stale);

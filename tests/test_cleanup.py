@@ -64,7 +64,7 @@ def test_single() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         blob_dir = os.path.join(tmp, "BlobStore")
         backup_root = os.path.join(tmp, "backups")
-        os.makedirs(blob_dir)
+        os.makedirs(blob_dir, exist_ok=True)
         setup(blob_dir)
         patch(blob_dir, backup_root)
 
@@ -135,10 +135,138 @@ def test_batch() -> None:
         print(f"✓ 批量回滚：恢复 {restored['restored']} 个文件")
 
 
+
+# ---------- 按范围清理（office / onedrive） ----------
+
+CID = "1234567890abcdef"
+LICENSE_NAME = f"{CID}.license"
+FAKE_REG_PATH = r"HKCU\Software\Microsoft\OneDrive\Accounts\Business1"
+FAKE_REG_VALUES = {"UserEmail": UPN, "cid": CID, "ConfiguredTenantId": "t-1"}
+
+# 可注入的注册表替身
+FAKE_REGISTRY = {}
+
+
+def fake_reg_snapshot(path):
+    return FAKE_REGISTRY.get(path)
+
+
+def fake_reg_delete_key(path):
+    FAKE_REGISTRY.pop(path, None)
+
+
+def fake_reg_restore(path, values):
+    FAKE_REGISTRY[path] = dict(values)
+
+
+def setup_scopes(tmp: str) -> None:
+    """identity 文件 + office 许可证文件 + 模拟注册表键。"""
+    blob_dir = os.path.join(tmp, "BlobStore")
+    os.makedirs(blob_dir, exist_ok=True)
+    setup(blob_dir)
+    lic_dir = os.path.join(tmp, "licenses")
+    os.makedirs(lic_dir, exist_ok=True)
+    with open(os.path.join(lic_dir, LICENSE_NAME), "w", encoding="utf-8") as fh:
+        fh.write("x" * 64)
+    FAKE_REGISTRY.clear()
+    FAKE_REGISTRY[FAKE_REG_PATH] = dict(FAKE_REG_VALUES)
+
+
+def patch_scopes(blob_dir: str, backup_root: str, lic_dir: str) -> None:
+    cleanup.BLOB_DIR = blob_dir
+    cleanup.BACKUP_ROOT = backup_root
+    cleanup._resolve_accounts = lambda upns, **kw: [
+        {
+            "upn": UPN,
+            "provider": "MSAccount",
+            "object_id": None,
+            "cid": CID,
+            "tenant_id": None,
+            "tenant_name": None,
+            "prefixes": {UPN.lower(), OBJECT_ID.lower()},
+        }
+    ]
+    cleanup.office.LICENSE_ROOTS = [lic_dir]
+    cleanup.office.license_paths_for_cid = lambda cid: (
+        [os.path.join(lic_dir, LICENSE_NAME)] if cid == CID else []
+    )
+    cleanup.office.profile_registry_keys = lambda ids: []
+    cleanup.onedrive.account_slot_paths = lambda upn: (
+        [FAKE_REG_PATH] if upn.lower() == UPN.lower() else []
+    )
+    cleanup._reg_snapshot = fake_reg_snapshot
+    cleanup._reg_delete_key = fake_reg_delete_key
+    cleanup._reg_restore = fake_reg_restore
+
+
+def test_scopes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        blob_dir = os.path.join(tmp, "BlobStore")
+        backup_root = os.path.join(tmp, "backups")
+        lic_dir = os.path.join(tmp, "licenses")
+        setup_scopes(tmp)
+        patch_scopes(blob_dir, backup_root, lic_dir)
+
+        # 默认（identity）只见 OneAuth 文件，许可证与注册表不在计划内
+        plan = cleanup.plan(UPN)
+        assert plan["scopes"] == ["identity"], plan["scopes"]
+        assert plan["file_count"] == 3 and plan["registry_count"] == 0, plan["file_count"]
+
+        # office 范围只含许可证文件，不动 OneAuth
+        plan = cleanup.plan(UPN, apps=["office"])
+        assert plan["scopes"] == ["office"]
+        assert plan["file_count"] == 1 and plan["registry_count"] == 0, plan
+        assert plan["files"][0]["name"] == LICENSE_NAME
+
+        # onedrive 范围只含注册表键，已带快照
+        plan = cleanup.plan(UPN, apps=["onedrive"])
+        assert plan["registry_count"] == 1 and plan["file_count"] == 0
+        assert plan["registry_keys"][0]["values"] == FAKE_REG_VALUES
+
+        # 组合范围 = 全部三项
+        plan = cleanup.plan(UPN, apps=["identity", "office", "onedrive"])
+        assert plan["total_count"] == 5, plan["total_count"]
+        print("✓ 范围计划：identity/office/onedrive 过滤正确")
+
+        # 非法范围被拒绝
+        try:
+            cleanup.plan(UPN, apps=["edge"])
+        except cleanup.CleanupError as exc:
+            print(f"✓ 非法范围被拒绝：{exc}")
+        else:
+            raise AssertionError("edge 范围应当被拒绝")
+
+        # 执行组合清理：3 文件 + 1 许可证 + 1 注册表键
+        result = cleanup.execute(UPN, expect_files=5, apps=["identity", "office", "onedrive"])
+        assert result["ok"] and result["removed"] == 4, result
+        assert result["deleted_keys"] == 1, result
+        assert LICENSE_NAME not in os.listdir(lic_dir)
+        assert FAKE_REG_PATH not in FAKE_REGISTRY
+        print("✓ 组合清理：4 个文件 + 1 个注册表键全部移除")
+
+        # 回滚：文件与注册表都恢复
+        restored = cleanup.restore(os.path.basename(result["backup"]))
+        assert restored["restored"] == 5, restored
+        assert os.path.isfile(os.path.join(lic_dir, LICENSE_NAME))
+        assert FAKE_REGISTRY[FAKE_REG_PATH] == FAKE_REG_VALUES
+        print("✓ 回滚：许可证文件与注册表键均已恢复")
+
+        # office 单独清理不碰 OneAuth 文件
+        FAKE_REGISTRY.clear()
+        setup_scopes(tmp)
+        patch_scopes(blob_dir, backup_root, lic_dir)
+        result = cleanup.execute(UPN, expect_files=1, apps=["office"])
+        assert result["removed"] == 1 and result["deleted_keys"] == 0
+        assert "unrelated.txt" in os.listdir(blob_dir)
+        print("✓ 仅 office：OneAuth 缓存与 OneDrive 均未受影响")
+
+
 def main() -> int:
     test_single()
     print()
     test_batch()
+    print()
+    test_scopes()
     print("\n全部通过")
     return 0
 

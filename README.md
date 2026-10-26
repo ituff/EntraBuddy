@@ -66,7 +66,16 @@ Every scan records a snapshot and diffs it against previous ones, surfacing acco
 
 ### Backup-first cleanup
 
-Stale identity caches can be cleaned, but **always backed up first**: files are copied to the local data directory (macOS `~/Library/Application Support/EntraBuddy/backups`, Windows `%LOCALAPPDATA%\EntraBuddy\backups`) and verified one by one — any failure aborts the whole operation. Single-account and batch cleanup supported, with one-click rollback.
+Stale identity caches can be cleaned, but **always backed up first**, and cleanup is **scope-selectable**:
+
+| Scope | Storage touched | Effect |
+|-------|-----------------|--------|
+| Identity cache | OneAuth blobs (default) | The sign-in cache shared by the Office family and the new OneDrive client; apps require re-login afterwards |
+| Office only | License files + Office identity registry records | Deactivates Office and removes its identity records; **OneDrive / Edge untouched** |
+| OneDrive only | The OneDrive account registry key | Unbinds the sync account; local folders are kept and sync resumes after re-login |
+
+Edge sign-in state lives inside Chromium profile files where automated cleanup risks corruption, so the UI says so and points to in-app sign-out. Registry keys are fully snapshotted into the backup before deletion and rebuilt as they were on rollback.
+: files are copied to the local data directory (macOS `~/Library/Application Support/EntraBuddy/backups`, Windows `%LOCALAPPDATA%\EntraBuddy\backups`) and verified one by one — any failure aborts the whole operation. Single-account and batch cleanup supported, with one-click rollback.
 
 ## Quick start
 
