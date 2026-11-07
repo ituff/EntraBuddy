@@ -21,6 +21,7 @@ from .util import APP_SUPPORT
 ACTIVE_DETAIL = office.ACTIVE_DETAIL
 ONEAUTH_DIR = human_path(oneauth.BLOB_DIR)
 SNAPSHOT_DIR = human_path(os.path.join(APP_SUPPORT, "snapshots"))
+BACKUP_DIR = os.path.join(APP_SUPPORT, "backups")
 
 # 应用 ID 随平台取自环境采集器（浏览器 / 同步 / 聊天）
 _IDS = {spec["kind"]: spec["id"] for spec in environment.KNOWN_APPS}
@@ -189,6 +190,58 @@ def _device_block() -> Dict[str, Any]:
         "note": "以上为本机可验证的信号。Intune 的实际合规结论由云端策略计算，"
         "需要 Graph 授权才能读取，本地无法替代。",
     }
+
+
+def snapshots() -> List[Dict[str, Any]]:
+    """演示快照列表：接口与真实 list_all() 结构一致，内容全为虚构。"""
+    return [
+        {
+            "id": "20261025-093012",
+            "saved_at": _ts(0.4),
+            "signature": "demo1",
+            "summary": {"total": 4},
+            "account_count": 4,
+            "path": os.path.join(SNAPSHOT_DIR, "20261025-093012.json"),
+        },
+        {
+            "id": "20261024-214400",
+            "saved_at": _ts(1.2),
+            "signature": "demo2",
+            "summary": {"total": 5},
+            "account_count": 5,
+            "path": os.path.join(SNAPSHOT_DIR, "20261024-214400.json"),
+        },
+    ]
+
+
+def backups() -> List[Dict[str, Any]]:
+    """演示备份列表：接口与真实 list_backups() 结构一致，内容全为虚构。"""
+    return [
+        {
+            "id": "20261025-094512_bob.wang_at_fabrikam.onmicrosoft.com",
+            "path": os.path.join(
+                BACKUP_DIR, "20261025-094512_bob.wang_at_fabrikam.onmicrosoft.com"
+            ),
+            "display_path": human_path(
+                os.path.join(
+                    BACKUP_DIR, "20261025-094512_bob.wang_at_fabrikam.onmicrosoft.com"
+                )
+            ),
+            "created_at": _ts(0.35),
+            "account": "bob.wang@fabrikam.onmicrosoft.com",
+            "file_count": 6,
+            "account_count": 1,
+        },
+        {
+            "id": "20261012-181203_batch2",
+            "path": os.path.join(BACKUP_DIR, "20261012-181203_batch2"),
+            "display_path": human_path(os.path.join(BACKUP_DIR, "20261012-181203_batch2")),
+            "created_at": _ts(13),
+            "account": "2 个账户",
+            "file_count": 11,
+            "account_count": 2,
+        },
+    ]
 
 
 def payload() -> Dict[str, Any]:
@@ -532,24 +585,7 @@ def payload() -> Dict[str, Any]:
         ],
         "device": _device_block(),
         "changes": {
-            "snapshots": [
-                {
-                    "id": "20261025-093012",
-                    "saved_at": _ts(0.4),
-                    "signature": "demo1",
-                    "summary": {"total": 4},
-                    "account_count": 4,
-                    "path": os.path.join(SNAPSHOT_DIR, "20261025-093012.json"),
-                },
-                {
-                    "id": "20261024-214400",
-                    "saved_at": _ts(1.2),
-                    "signature": "demo2",
-                    "summary": {"total": 5},
-                    "account_count": 5,
-                    "path": os.path.join(SNAPSHOT_DIR, "20261024-214400.json"),
-                },
-            ],
+            "snapshots": snapshots(),
             "diff": {
                 "from": {"id": "20261025-093012", "saved_at": _ts(0.4)},
                 "to": {"id": "current", "saved_at": _ts(0)},

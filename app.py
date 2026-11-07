@@ -81,10 +81,11 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(result)
                 return
             if route == "/api/snapshots":
-                self._json({"snapshots": snapshots.list_all()})
+                # 演示模式下本机可能存有真实快照/备份（含真实 UPN），必须用虚构数据替代
+                self._json({"snapshots": demo.snapshots() if DEMO_MODE else snapshots.list_all()})
                 return
             if route == "/api/backups":
-                self._json({"backups": cleanup.list_backups()})
+                self._json({"backups": demo.backups() if DEMO_MODE else cleanup.list_backups()})
                 return
         except ApiError as exc:
             self._json({"error": str(exc)}, exc.status)
